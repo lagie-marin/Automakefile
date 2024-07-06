@@ -1,0 +1,14 @@
+main.c;fakeProj.h
+calc.c;calc/calc.h fakeProj.h
+PROJECT_DIR;fakeProj1
+SOURCES_DIR;.
+CC;gcc
+CFLAGS;-ftest-coverage -O2
+HEADERS_DIR;include
+LIBS_DIR;-lm
+BCK_DIR;backup
+ZIP;tar
+ZIPFLAGS;-cvvf
+UNZIP;tar
+UNZIPFLAGS;-xvf
+VERSION;4.45

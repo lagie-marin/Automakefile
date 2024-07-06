@@ -1,0 +1,229 @@
+#!/bin/bash
+makefile_name="Makefile"
+project_dir=""
+files=""
+include=""
+cc=""
+header_files=""
+header_dir=""
+source_dir=""
+exec=""
+cflags=""
+libs_dir=""
+bck_dir="backup"
+zip="tar"
+zip_flags="-cvvf"
+unzip="tar"
+unzip_flags="-xvf"
+version="1"
+if [[ $# != 1 ]] || ! [ -f "$1" ]; then
+    echo "Usage: $0 <path_to_config>"
+    exit 84
+fi
+add() {
+    echo -e $1 >> $project_dir/$makefile_name
+}
+
+add_src() {
+    count=0
+    for file in $files; do
+        if [ $count -eq 0 ]; then
+            echo "SRC = $(realpath --relative-to=$project_dir $(find "$project_dir" -type f -wholename "*$file")) \\" > $project_dir/$makefile_name
+        else
+            add "\t$(realpath --relative-to=$project_dir $(find "$project_dir" -type f -wholename "*$file")) \\"
+        fi
+        count=$((count+1))
+    done
+    if [ -n "$files" ]; then
+        add "-n \n"
+    fi
+}
+
+add_header() {
+    count=0
+    if ! [ -z "$header_dir" ]; then
+        add "HEADERS_DIR = -I$header_dir \\"
+        for header_file in $header_files; do
+            add "\t-I$header_dir/$header_file \\"
+        done
+    else
+        for header_file in $header_files; do
+            if [ $count -eq 0 ]; then
+                add "HEADERS_DIR = -I$(realpath --relative-to=$project_dir $(find "$project_dir" -type f -wholename "*$header_file")) \\"
+            else
+                add "\t-I$(realpath --relative-to=$project_dir $(find "$project_dir" -type f -wholename "*$header_file")) \\"
+            fi
+            count=$((count+1))
+        done
+    fi
+    add ""
+}
+
+add_exec_all() {
+    if ! [ -z "$exec" ]; then
+        echo -n " -o \$(SOURCES_DIR)/\$(EXEC)"
+    fi
+}
+
+add_header_dir() {
+    if ! [ -z "$header_dir" ]; then
+        echo -n " \$(HEADERS_DIR)"
+    fi
+}
+
+add_source_dir () {
+    if ! [ -z "$source_dir" ]; then
+        echo " \$(SOURCES_DIR)"
+    fi
+}
+
+add_libs() {
+    if ! [ -z "$libs_dir" ]; then
+        echo " \$(LIBS)"
+    fi
+}
+
+set_all_method() {
+    add "-n \nall"
+    if ! [ -z "$exec" ]; then
+        add "-n : \$(EXEC)\n\n\$(EXEC)"
+    fi
+    add ": \$(OBJ)$(add_source_dir)"
+    add "-n \t\${CC} \$(OBJ)$(add_exec_all)$(add_header_dir)$(add_libs)\n"
+
+}
+
+set_exec_fclean() {
+    if ! [ -z "$exec" ]; then
+        echo "\$(EXEC)"
+    else
+        echo "a.out"
+    fi
+}
+
+get_version() {
+    add "\t@VERSION=\$\$((\$\$(cat .version) - 1)); \\"
+    add "\tif [ \$\$VERSION -lt 0 ]; then \\"
+    add "\t\tVERSION=0; \\"
+    add "\tfi; \\"
+    add "\tif [ -f \$(BCK_DIR)/\$(EXEC)_\$(V).\$(ZIP) ]; then \\"
+    add "\t\t$1 \\"
+    add "\telse\\"
+    add "\t\techo \"Backup file \$(BCK_DIR)/\$(EXEC)_\$(V).\$(ZIP) does not exist.\"; \\"
+    add "\tfi; \\"
+}
+
+add_revert() {
+    add "revert:"
+    get_version "\$(UNZIP) \$(UNZIPFLAGS) \$(BCK_DIR)/\$(EXEC)_\$(V).\$(ZIP);"
+    add "\tif [ \$\$(cat .version) -gt 0 ]; then \\"
+    add "\t\techo \$\$((\$\$(cat .version) - 1)) > .version; \\"
+    add "\tfi\n"
+}
+
+generate_file() {
+    echo -n "" > $project_dir/$makefile_name
+    add_src
+    add_header
+    if ! [ -z "$cc" ]; then
+        add "CC = $cc"
+    fi
+    if ! [ -z "$source_dir" ]; then
+        add "SOURCES_DIR = $source_dir"
+    fi
+    if ! [ -z "$cflags" ]; then
+        add "CFLAGS += $cflags"
+    fi
+    if ! [ -z "$exec" ]; then
+        add "EXEC = $exec"
+    fi
+    count=0
+    for lib_dir in $libs_dir; do
+        if [ $count -eq 0 ]; then
+            add "LIBS = $lib_dir \\"
+        else
+            add "\t$lib_dir \\"
+        fi
+        count=$((count+1))
+    done
+    add "\nBCK_DIR = $bck_dir"
+    add "ZIP = $zip"
+    add "ZIPFLAGS = $zip_flags"
+    add "UNZIP = $unzip"
+    add "UNZIPFLAGS = $unzip_flags"
+    add "OBJ = \$(SRC:.c=.o)"
+    add "V = $version"
+    set_all_method
+    add "\nclean:\n\trm -f \$(SOURCES_DIR)/\$(OBJ)\n\trm -f \$(SOURCES_DIR)/vgcore.*\n\trm -f \$(SOURCES_DIR)/*.gcno\n"
+    add "fclean: clean\n\trm -f \$(SOURCES_DIR)/$(set_exec_fclean)"
+    add "re: fclean all"
+    add "\nnum:\n\t@echo \$\$((\$\$(cat .version)))\n"
+    add "\narchive:\n\tmkdir -p \$(BCK_DIR)\n\t\$(ZIP) \$(ZIPFLAGS) \$(BCK_DIR)/$(set_exec_fclean)_\$(V).\$(ZIP) \$(SRC);"
+    add "\techo \$\$((\$\$(cat .version) + 1)) > .version"
+    add "\techo \"$(set_exec_fclean)_\$(V).\$(ZIP) file generated.\";\n"
+    add_revert
+    add "delete:"
+    add "\t@if [ -f \$(BCK_DIR)/$(set_exec_fclean)_\$(V).\$(ZIP) ]; then \\"
+    add "\t\trm \$(BCK_DIR)/$(set_exec_fclean)_\$(V).\$(ZIP); \\"
+    add "\telse \\"
+    add "\t\techo \"Backup file \$(BCK_DIR)/$(set_exec_fclean)_\$(V).\$(ZIP) does not exist.\"; \\"
+    add "\tfi\n"
+    echo "0" > $project_dir/.version
+}
+
+while IFS=";" read -ra ligne  || [[ -n "$ligne" ]]; do
+    end_char=${ligne: -2}
+    if [ "$end_char" = ".c" ]; then
+        files+="$ligne "
+        header_files+="${ligne[1]} "
+    fi
+    if [ "${ligne[0]}" = "PROJECT_DIR" ]; then
+        if [ -n "${ligne[1]}" ] && [ -d "${ligne[1]}" ] && [ "${ligne[1]}" != "." ]; then
+            project_dir=${ligne[1]}
+        else
+            exit 84
+        fi
+    fi
+    if [ "${ligne[0]}" = "HEADERS_DIR" ]; then
+        header_dir=${ligne[1]}
+    fi
+    if [ "${ligne[0]}" = "CC" ]; then
+        cc=${ligne[1]}
+    fi
+    if [ "${ligne[0]}" = "SOURCES_DIR" ]; then
+        source_dir=${ligne[1]}
+    fi
+    if [ "${ligne[0]}" = "EXEC" ]; then
+        exec=${ligne[1]}
+    fi
+    if [ "${ligne[0]}" = "CFLAGS" ]; then
+        cflags=${ligne[1]}
+    fi
+    if [ "${ligne[0]}" = "LIBS_DIR" ]; then
+        libs_dir=${ligne[1]}
+    fi
+    if [ "${ligne[0]}" = "BCK_DIR" ]; then
+        bck_dir=${ligne[1]}
+    fi
+    if [ "${ligne[0]}" = "ZIP" ]; then
+        zip=${ligne[1]}
+    fi
+    if [ "${ligne[0]}" = "ZIPFLAGS" ]; then
+        zip_flags=${ligne[1]}
+    fi
+    if [ "${ligne[0]}" = "UNZIP" ]; then
+        unzip=${ligne[1]}
+    fi
+    if [ "${ligne[0]}" = "UNZIPFLAGS" ]; then
+        unzip_flags=${ligne[1]}
+    fi
+    if [ "${ligne[0]}" = "VERSION" ]; then
+        version="${ligne[1]} "
+    fi
+done < $1
+if [ -z "$files" ] || [ -z "$project_dir" ]; then
+    exit 84
+fi
+header_files=$(echo "${header_files}" | tr ' ' '\n' | sort | uniq | tr '\n' ' ')
+files=$(echo "${files}" | tr ' ' '\n' | sort | uniq | tr '\n' ' ')
+generate_file
